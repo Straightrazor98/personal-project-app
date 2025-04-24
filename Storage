@@ -1,0 +1,152 @@
+import { db } from "./db";
+import { projects, notes, tags, users } from "@shared/schema";
+import { Project, InsertProject, Note, InsertNote, Tag, InsertTag, User, InsertUser } from "@shared/schema";
+import { eq, and, desc } from "drizzle-orm";
+
+export interface IStorage {
+  // User methods
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  
+  // Project methods
+  getProjects(completed?: boolean): Promise<Project[]>;
+  getProject(id: number): Promise<Project | undefined>;
+  createProject(project: InsertProject): Promise<Project>;
+  updateProject(id: number, project: Partial<InsertProject>): Promise<Project | undefined>;
+  markProjectComplete(id: number, completed: boolean): Promise<Project | undefined>;
+  deleteProject(id: number): Promise<boolean>;
+  
+  // Note methods
+  getNotes(projectId: number): Promise<Note[]>;
+  createNote(note: InsertNote): Promise<Note>;
+  updateNote(id: number, content: string): Promise<Note | undefined>;
+  deleteNote(id: number): Promise<boolean>;
+  
+  // Tag methods
+  getTags(): Promise<Tag[]>;
+  createTag(tag: InsertTag): Promise<Tag>;
+  updateTagCount(name: string, increment: boolean): Promise<Tag | undefined>;
+}
+
+export class DatabaseStorage implements IStorage {
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
+    return user;
+  }
+
+  async getProjects(completed?: boolean): Promise<Project[]> {
+    if (completed === undefined) {
+      return db.select().from(projects).orderBy(desc(projects.updatedAt));
+    }
+    return db.select().from(projects).where(eq(projects.completed, completed)).orderBy(desc(projects.updatedAt));
+  }
+
+  async getProject(id: number): Promise<Project | undefined> {
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    return project || undefined;
+  }
+
+  async createProject(insertProject: InsertProject): Promise<Project> {
+    const [project] = await db
+      .insert(projects)
+      .values(insertProject)
+      .returning();
+    return project;
+  }
+
+  async updateProject(id: number, projectUpdate: Partial<InsertProject>): Promise<Project | undefined> {
+    const [updatedProject] = await db
+      .update(projects)
+      .set({ ...projectUpdate, updatedAt: new Date() })
+      .where(eq(projects.id, id))
+      .returning();
+    return updatedProject || undefined;
+  }
+
+  async markProjectComplete(id: number, completed: boolean): Promise<Project | undefined> {
+    const [updatedProject] = await db
+      .update(projects)
+      .set({ completed, updatedAt: new Date() })
+      .where(eq(projects.id, id))
+      .returning();
+    return updatedProject || undefined;
+  }
+
+  async deleteProject(id: number): Promise<boolean> {
+    const result = await db
+      .delete(projects)
+      .where(eq(projects.id, id))
+      .returning({ id: projects.id });
+    return result.length > 0;
+  }
+
+  async getNotes(projectId: number): Promise<Note[]> {
+    return db.select().from(notes).where(eq(notes.projectId, projectId)).orderBy(desc(notes.createdAt));
+  }
+
+  async createNote(insertNote: InsertNote): Promise<Note> {
+    const [note] = await db
+      .insert(notes)
+      .values(insertNote)
+      .returning();
+    return note;
+  }
+
+  async updateNote(id: number, content: string): Promise<Note | undefined> {
+    const [updatedNote] = await db
+      .update(notes)
+      .set({ content })
+      .where(eq(notes.id, id))
+      .returning();
+    return updatedNote || undefined;
+  }
+
+  async deleteNote(id: number): Promise<boolean> {
+    const result = await db
+      .delete(notes)
+      .where(eq(notes.id, id))
+      .returning({ id: notes.id });
+    return result.length > 0;
+  }
+
+  async getTags(): Promise<Tag[]> {
+    return db.select().from(tags);
+  }
+
+  async createTag(insertTag: InsertTag): Promise<Tag> {
+    const [tag] = await db
+      .insert(tags)
+      .values(insertTag)
+      .returning();
+    return tag;
+  }
+
+  async updateTagCount(name: string, increment: boolean): Promise<Tag | undefined> {
+    const [tag] = await db.select().from(tags).where(eq(tags.name, name));
+    if (!tag) return undefined;
+    
+    const newCount = increment ? tag.count + 1 : Math.max(0, tag.count - 1);
+    const [updatedTag] = await db
+      .update(tags)
+      .set({ count: newCount })
+      .where(eq(tags.id, tag.id))
+      .returning();
+    return updatedTag;
+  }
+}
+
+export const storage = new DatabaseStorage();
